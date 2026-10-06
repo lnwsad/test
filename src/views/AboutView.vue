@@ -1,13 +1,17 @@
 <template>
-  <article class="about-card">
-    <span class="eyebrow muted">ABOUT THIS STARTER</span>
-    <h1>โครงสร้างโปรเจกต์</h1>
-    <p>เว็บนี้ใช้ Vue 3, Vite และ Vue Router ส่วน Capacitor เตรียมทางไว้สำหรับแพ็กเป็นแอปมือถือ</p>
+  <article class="about-card rules-page-card">
+    <span class="eyebrow muted">วิธีเล่น · 4 × 4</span>
+    <h1>เปิดไข่<br /><span>เดินหรือกิน</span></h1>
+    <p>ไข่ทั้ง 16 ฟองกระจายคละกันบนกระดาน และซ่อนทั้งฝ่ายกับชนิดสัตว์ไว้ เมื่อผู้เล่นเข้าครบสองคนจึงทอยลูกเต๋าหนึ่งครั้ง แล้วเปิดไข่สุ่มตามแต้มที่ได้</p>
     <ul class="stack-list">
-      <li><span>หน้าบ้าน</span><strong>Vue 3 + Vite</strong></li>
-      <li><span>เส้นทาง</span><strong>Vue Router</strong></li>
-      <li><span>มือถือ</span><strong>Capacitor 8</strong></li>
-      <li><span>เว็บ assets</span><strong>dist/</strong></li>
+      <li><span>ในเทิร์นของคุณ</span><strong>เปิดไข่ฟองไหนก็ได้ หรือเดินขึ้น/ลง/ซ้าย/ขวาหนึ่งช่อง</strong></li>
+      <li><span>เวลาคิด</span><strong>15 วินาทีต่อเทิร์น หมดเวลาแล้วยังมีไข่ซ่อน ระบบสุ่มเปิด 1 ฟอง; ถ้าเปิดหมดแล้วจะเลือกกินที่ชนะได้คุ้มที่สุดก่อน ถ้าไม่มีจะสุ่มเดินช่องว่าง แล้วจึงแลกตัวหรือยอมเสียตัวเข้าชนเมื่อไม่มีช่องว่าง; ถ้าเดินไม่ได้จะผ่านเทิร์น</strong></li>
+      <li><span>พลังสัตว์</span><strong>ตัวใหญ่กว่ากินตัวเล็กได้ ตัวเล็กเดินไปชนตัวใหญ่แล้วหายไป</strong></li>
+      <li><span>ค่าเท่ากัน</span><strong>หมากทั้งคู่หายไป</strong></li>
+      <li><span>ข้อยกเว้น</span><strong>หนูกินช้างได้ ช้างกินหนูไม่ได้</strong></li>
+      <li><span>ตัดสินแพ้ชนะ</span><strong>กินอีกฝ่ายหมด หรือเทียบค่าตัวสุดท้ายเมื่อเหลือฝ่ายละหนึ่งตัว</strong></li>
+      <li><span>เสมอ</span><strong>ค่าตัวสุดท้ายเท่ากัน หรือครบ 60 เทิร์น</strong></li>
     </ul>
+    <RouterLink class="create-button rules-cta" to="/">กลับไปเล่นเกม <span>↗</span></RouterLink>
   </article>
 </template>

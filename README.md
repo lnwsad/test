@@ -1,7 +1,52 @@
-Test App — Vue 3 + Capacitor
+# เปิดไข่ชิงเจ้า
 
-Mobile-first starter using Vue 3, Vite, Vue Router, and Capacitor.
+เกมสัตว์ปริศนาเล่นออนไลน์สองคน สร้างด้วย Vue 3, Vite, Express และ Capacitor
 
-Requires Node.js 22+. Run npm install and npm run dev for web development. Use npm run build to create dist/. Use npm run android:add then npm run android:sync to prepare Android. Use npm run ios:add on macOS with Xcode installed.
+## วิธีเล่น
 
-Structure: src/components, src/router, src/services, and src/views. Capacitor webDir is dist. The router uses hash history for static web and native compatibility.
+- กระดาน 4 × 4 มีไข่ 16 ฟอง ฝ่ายละ 8 ฟอง สุ่มคละตำแหน่ง และซ่อนทั้งฝ่ายกับชนิดสัตว์
+- เมื่อผู้เล่นเข้าครบสองคน ทอยลูกเต๋าครั้งเดียว: แต้ม 1–4 ออกอย่างละ 20%, แต้ม 5–6 ออกอย่างละ 5% แล้วสุ่มเปิดไข่จากทั้งกระดานตามแต้ม
+- ผลัดกันเล่นทีละเทิร์น ใช้เวลาได้ 15 วินาที เปิดไข่ฟองไหนก็ได้ หรือเดินหมากหนึ่งช่องแนวตั้ง/แนวนอนเข้าช่องว่างหรือชนหมากฝ่ายตรงข้าม
+- ถ้าหมากผู้เดินพลังสูงกว่า หมากคู่แข่งหายและผู้เดินย้ายไปช่องนั้น; ถ้าพลังต่ำกว่า หมากผู้เดินหาย; ถ้าพลังเท่ากัน หายทั้งคู่
+- หนูกินช้างได้ ส่วนช้างเดินชนหนูแล้วหายไป
+- ถ้ากินอีกฝ่ายหมดเป็นผู้ชนะ เมื่อเหลือฝ่ายละหนึ่งตัว ระบบเปิดไข่สุดท้ายและเทียบค่าพลัง; ถ้าค่าเท่ากันเสมอ
+- ครบ 60 เทิร์นเสมอ เมื่อหมดเวลา ระบบสุ่มเปิดไข่หนึ่งฟองถ้ายังมีไข่ซ่อน; ถ้าเปิดหมดแล้วจะเลือกกินที่ชนะได้คุ้มที่สุดก่อน, สุ่มเดินช่องว่างถ้าไม่มีจังหวะกินที่ชนะ, แลกตัวค่าพลังเท่ากันหรือยอมเสียตัวเข้าชนตัวที่ใหญ่กว่าเมื่อไม่มีช่องว่าง, และผ่านเทิร์นเมื่อไม่มีทางเดิน
+
+## เริ่มเล่นในเครื่อง
+
+ต้องใช้ Node.js 22 ขึ้นไป จากโฟลเดอร์โปรเจกต์:
+
+```sh
+npm install
+npm run dev:api
+```
+
+เปิดอีกเทอร์มินัลแล้วรัน:
+
+```sh
+npm run dev
+```
+
+เปิด `http://localhost:5173` สร้างห้องและส่งรหัส 5 ตัวให้คู่แข่ง ผู้เล่นทั้งสองต้องเชื่อมต่อ API ตัวเดียวกัน
+
+## นำขึ้นออนไลน์
+
+แอปสามารถรัน production เป็น Node web service เดียวได้ โดย Express เสิร์ฟทั้งเว็บที่ build แล้วและ API บน origin เดียวกัน จึงไม่ต้องตั้ง `VITE_API_URL` หรือ CORS แยก:
+
+1. Push โค้ดไปยัง GitHub repository ส่วนตัว
+2. สร้าง Web Service จาก repository ในผู้ให้บริการ Node hosting เช่น Render
+3. ใช้ Build Command `npm ci && npm run build` และ Start Command `npm start`
+4. เปิด URL HTTPS ที่ผู้ให้บริการให้มา แล้วสร้างห้องทดสอบจากอุปกรณ์/เครือข่ายอื่น
+
+ห้องแข่งอยู่ในหน่วยความจำของ process เดียว จึงต้องใช้ persistent web service เพียง instance เดียว ไม่ใช้ serverless และไม่เพิ่ม replica; ห้องที่กำลังเล่นจะหายเมื่อ service รีสตาร์ตหรือ deploy ใหม่ ข้อมูลห้องยังไม่มี persistence ในฐานข้อมูล แผนฟรีที่พัก service เมื่อไม่มีการใช้งานจึงเหมาะกับทดลองเล่นและอาจมีช่วงรอตอนปลุก service; ถ้าต้องการให้พร้อมเล่นต่อเนื่องให้เลือกแผน always-on โดยตรวจราคาในบัญชี hosting ก่อนเปิดใช้
+
+MongoDB ใน `.env` ใช้สำหรับ API บันทึกโน้ตตัวอย่างเดิมเท่านั้น ตัวเกมไม่ต้องต่อฐานข้อมูล
+
+## คำสั่งหลัก
+
+```sh
+npm run build          # สร้างเว็บไว้ใน dist/
+npm run preview        # ดูตัวอย่าง production build
+npm run dev:api        # รัน Express API
+npm run cap:sync       # build แล้ว sync เว็บ assets เข้า native projects
+```

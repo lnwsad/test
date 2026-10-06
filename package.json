@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:api": "node --watch server/index.js",
     "build": "vite build",
+    "start": "node server/index.js",
+    "start:api": "node server/index.js",
     "preview": "vite preview",
     "cap:sync": "npm run build && cap sync",
     "android:add": "cap add android",
@@ -15,11 +18,15 @@
     "ios:open": "cap open ios"
   },
   "dependencies": {
-    "@capacitor/android": "^8.0.0",
     "@capacitor/core": "^8.0.0",
-    "@capacitor/ios": "^8.0.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.5.0"
+    "vue-router": "^4.5.0",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "mongoose": "^8.19.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.0.0",
