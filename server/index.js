@@ -443,7 +443,7 @@ app.post('/api/ox/games/:id/move', (request, response) => {
 
 app.get('/api/health', (_request, response) => {
   const connected = mongoose.connection.readyState === 1
-  response.status(connected ? 200 : 503).json({
+  response.status(200).json({
     api: 'ok',
     database: connected ? 'connected' : 'disconnected',
   })
