@@ -608,7 +608,10 @@ app.post('/api/notes', async (request, response, next) => {
 // In production, the same persistent server serves the built Vue app and API.
 // Keep unknown /api routes as API 404s instead of returning the SPA document.
 app.use((request, response, next) => {
-  if (request.method !== 'GET' || request.path === '/api' || request.path.startsWith('/api/')) return next()
+  if (request.path === '/api' || request.path.startsWith('/api/')) {
+    return response.status(404).json({ error: 'ไม่พบ API endpoint นี้ กรุณารีเฟรชหน้าเว็บแล้วลองอีกครั้ง' })
+  }
+  if (request.method !== 'GET') return next()
   response.sendFile(join(clientDist, 'index.html'))
 })
 

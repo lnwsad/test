@@ -9,8 +9,9 @@ async function oxRequest(path, { method = 'GET', token, body } = {}) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'เชื่อมต่อห้อง OX ไม่ได้')
+  const data = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data?.error || `API OX ตอบกลับผิดพลาด (${response.status})`)
+  if (!data) throw new Error('API OX ส่งข้อมูลกลับมาไม่ถูกต้อง ลองรีเฟรชแล้วทำรายการอีกครั้ง')
   return data
 }
 
