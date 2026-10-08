@@ -35,6 +35,13 @@ const roomSecondsLeft = computed(() => {
   return start ? Math.max(0, Math.ceil((Date.parse(start) + (game.value.winner ? 120_000 : 60_000) - now.value) / 1000)) : 0
 })
 const winnerName = computed(() => game.value?.winner === 'draw' ? 'เสมอกัน!' : game.value?.players?.[game.value?.winner] || 'ผู้ชนะ')
+function withRoomTimestamps(snapshot, previous = null) {
+  return {
+    ...snapshot,
+    createdAt: snapshot.createdAt || previous?.createdAt || new Date().toISOString(),
+    finishedAt: snapshot.finishedAt || (snapshot.winner ? previous?.finishedAt || new Date().toISOString() : null),
+  }
+}
 const isMyTurn = computed(() => !isSpectator.value && game.value?.status === 'playing' && !game.value?.winner && game.value?.turn === viewerSide.value && secondsLeft.value > 0)
 const isOpponentTurn = computed(() => !isSpectator.value && game.value?.status === 'playing' && !game.value?.winner && game.value?.turn !== viewerSide.value)
 const selectedPiece = computed(() => game.value?.pieces.find(piece => piece.id === selectedId.value) || null)
@@ -87,7 +94,7 @@ function hasMove(row, col) {
 
 function saveCredentials(payload) {
   winnerPopupDismissed.value = false
-  game.value = payload.game
+  game.value = withRoomTimestamps(payload.game)
   playerToken.value = payload.token
   selectedId.value = null
   sessionStorage.setItem('jungle-active-game', JSON.stringify({ id: payload.game.id, token: payload.token }))
@@ -155,7 +162,8 @@ async function refreshGame() {
   if (!game.value || !playerToken.value) return
   try {
     const hadWinner = Boolean(game.value.winner)
-    game.value = await getGame(game.value.id, playerToken.value)
+    const snapshot = await getGame(game.value.id, playerToken.value)
+    game.value = withRoomTimestamps(snapshot, game.value)
     if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
     errorMessage.value = error.message
@@ -230,7 +238,7 @@ if (savedGame) {
     const saved = JSON.parse(savedGame)
     playerToken.value = saved.token
     getGame(saved.id, saved.token).then(snapshot => {
-      game.value = snapshot
+      game.value = withRoomTimestamps(snapshot)
       winnerPopupDismissed.value = false
       if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1100)
     }).catch(() => sessionStorage.removeItem('jungle-active-game'))

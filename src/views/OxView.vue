@@ -38,6 +38,13 @@ const roomSecondsLeft = computed(() => {
   return start ? Math.max(0, Math.ceil((Date.parse(start) + (game.value.winner ? 120_000 : 60_000) - now.value) / 1000)) : 0
 })
 const winnerName = computed(() => game.value?.winner === 'draw' ? 'เสมอกัน!' : game.value?.players?.[game.value?.winner] || 'ผู้ชนะ')
+function withRoomTimestamps(snapshot, previous = null) {
+  return {
+    ...snapshot,
+    createdAt: snapshot.createdAt || previous?.createdAt || new Date().toISOString(),
+    finishedAt: snapshot.finishedAt || (snapshot.winner ? previous?.finishedAt || new Date().toISOString() : null),
+  }
+}
 const isMyTurn = computed(() => game.value?.status === 'playing' && !game.value?.winner && !spectator.value && game.value?.turn === game.value?.side && secondsLeft.value > 0)
 const ownSide = computed(() => spectator.value ? 'o' : game.value?.side || 'x')
 const otherSide = computed(() => spectator.value ? 'x' : ownSide.value === 'x' ? 'o' : 'x')
@@ -117,7 +124,7 @@ function dropPiece(event, cell) {
 
 function saveCredentials(payload) {
   winnerPopupDismissed.value = false
-  game.value = payload.game
+  game.value = withRoomTimestamps(payload.game)
   playerToken.value = payload.token
   selectedSize.value = null
   sessionStorage.setItem('ox-active-game', JSON.stringify({ id: payload.game.id, token: payload.token }))
@@ -185,7 +192,8 @@ async function refreshGame() {
   if (!game.value || !playerToken.value) return
   try {
     const hadWinner = Boolean(game.value.winner)
-    game.value = await getOxGame(game.value.id, playerToken.value)
+    const snapshot = await getOxGame(game.value.id, playerToken.value)
+    game.value = withRoomTimestamps(snapshot, game.value)
     if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
     errorMessage.value = error.message
@@ -224,7 +232,7 @@ if (savedGame) {
     const saved = JSON.parse(savedGame)
     playerToken.value = saved.token
     getOxGame(saved.id, saved.token).then(snapshot => {
-      game.value = snapshot
+      game.value = withRoomTimestamps(snapshot)
       winnerPopupDismissed.value = false
       if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1000)
     }).catch(() => sessionStorage.removeItem('ox-active-game'))
