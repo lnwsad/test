@@ -38,6 +38,10 @@ export function leaveOxGame(id, token) {
   return oxRequest(`/${encodeURIComponent(id)}/leave`, { method: 'POST', token })
 }
 
+export function closeOxGame(id, token) {
+  return oxRequest(`/${encodeURIComponent(id)}`, { method: 'DELETE', token })
+}
+
 export function playOxCell(id, token, cell, size) {
   return oxRequest(`/${encodeURIComponent(id)}/move`, { method: 'POST', token, body: { cell, size } })
 }

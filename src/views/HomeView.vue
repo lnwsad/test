@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ANIMALS, ANIMAL_ORDER, BOARD_HEIGHT, BOARD_WIDTH, MAX_TURNS, TURN_SECONDS, getLegalMoves } from '../game/rules.js'
-import { createGame, getGame, getOpenGames, joinGame, leaveGame, openGameEgg, quickJoinGame, sendGameMove } from '../services/api.js'
+import { closeGame, createGame, getGame, getOpenGames, joinGame, leaveGame, openGameEgg, quickJoinGame, sendGameMove } from '../services/api.js'
 import AnimalArt from '../components/AnimalArt.vue'
 import { getPagePlayerName, setPagePlayerName } from '../services/playerName.js'
 
@@ -18,6 +18,8 @@ const notice = ref('')
 const selectedId = ref(null)
 const now = ref(Date.now())
 const winnerPopupDismissed = ref(false)
+const showExitConfirm = ref(false)
+const roomClosedMessage = ref('')
 let pollTimer
 let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
@@ -94,6 +96,7 @@ function hasMove(row, col) {
 
 function saveCredentials(payload) {
   winnerPopupDismissed.value = false
+  roomClosedMessage.value = ''
   game.value = withRoomTimestamps(payload.game)
   playerToken.value = payload.token
   selectedId.value = null
@@ -166,6 +169,10 @@ async function refreshGame() {
     game.value = withRoomTimestamps(snapshot, game.value)
     if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
+    if (error.message.includes('ผู้เล่นออกจากห้อง')) {
+      leaveRoom('ผู้เล่นออกจากห้อง ห้องนี้ถูกปิดแล้ว')
+      return
+    }
     errorMessage.value = error.message
     clearInterval(pollTimer)
   }
@@ -214,15 +221,34 @@ async function clickCell(row, col) {
   selectedId.value = null
 }
 
-function leaveRoom() {
+function requestExit() {
+  showExitConfirm.value = true
+}
+
+async function confirmExitRoom() {
+  if (!game.value || !playerToken.value || busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    if (!isSpectator.value) await closeGame(game.value.id, playerToken.value)
+    showExitConfirm.value = false
+    leaveRoom()
+  } catch (error) {
+    errorMessage.value = error.message
+  } finally { busy.value = false }
+}
+
+function leaveRoom(message = '') {
   leaveSpectatorPresence()
   clearInterval(pollTimer)
+  showExitConfirm.value = false
   game.value = null
   playerToken.value = ''
   selectedId.value = null
   sessionStorage.removeItem('jungle-active-game')
   errorMessage.value = ''
   notice.value = ''
+  roomClosedMessage.value = message
   startRoomsRefresh()
 }
 
@@ -240,7 +266,7 @@ if (savedGame) {
     getGame(saved.id, saved.token).then(snapshot => {
       game.value = withRoomTimestamps(snapshot)
       winnerPopupDismissed.value = false
-      if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1100)
+      pollTimer = setInterval(refreshGame, 1100)
     }).catch(() => sessionStorage.removeItem('jungle-active-game'))
   } catch { sessionStorage.removeItem('jungle-active-game') }
 }
@@ -269,6 +295,7 @@ onBeforeUnmount(() => {
 
     <section v-if="!game" class="lobby-card">
       <div class="lobby-heading"><span class="lobby-icon">⚔</span><div><h2>เริ่มเกมกับเพื่อน</h2><p>สร้างห้อง public หรือเลือกเข้าห้องที่เปิดรออยู่</p></div></div>
+      <div v-if="roomClosedMessage" class="room-closed-modal-backdrop" role="presentation"><section class="room-closed-modal" role="dialog" aria-modal="true" aria-labelledby="jungle-closed-title"><span>📢</span><h2 id="jungle-closed-title">ผู้เล่นออกจากห้อง</h2><p>ห้องนี้ถูกปิดแล้ว ทุกคนกลับมาที่ Lobby แล้ว</p><button class="join-button" type="button" @click="roomClosedMessage = ''">ตกลง</button></section></div>
       <label class="field-label" for="player-name">ชื่อผู้เล่น</label>
       <input id="player-name" v-model="playerName" class="lobby-input" maxlength="20" placeholder="เช่น เจ้าป่ามือใหม่" autocomplete="nickname" />
       <div class="lobby-actions lobby-actions-public">
@@ -292,7 +319,7 @@ onBeforeUnmount(() => {
     <section v-else class="match-layout simple-match">
       <div v-if="game.status === 'waiting'" class="room-expiry-banner" role="status">กำลังรอผู้เล่น · ปิดห้องใน {{ roomSecondsLeft }} วินาที</div>
       <div v-if="game.winner" class="room-expiry-banner finished-expiry-banner" role="status">ห้องจะปิดและกลับ lobby ใน {{ roomSecondsLeft }} วินาที</div>
-      <div class="match-topline"><button class="back-button" type="button" @click="leaveRoom">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ห้อง {{ game.id }}</span></div>
+      <div class="match-topline"><button class="back-button" type="button" @click="requestExit">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ห้อง {{ game.id }}</span></div>
       <div class="match-grid">
         <div class="board-wrap">
           <div v-if="isSpectator" class="player-strip opponent-strip" :class="{ 'active-turn-strip': game.turn === 'red' }"><span class="player-avatar red-avatar">🔴</span><div><strong>{{ game.players.red || 'ฝั่งแดง' }}</strong><small>ฝั่งแดง · เปิดเผยแล้ว {{ rivalRevealed }} / 8 ตัว</small></div><span v-if="game.turn === 'red' && !game.winner" class="turn-chip spectator-turn-chip">กำลังเล่น</span></div>
@@ -329,8 +356,9 @@ onBeforeUnmount(() => {
         <span class="result-trophy">{{ game.winner === 'draw' ? '🤝' : '🏆' }}</span><span class="eyebrow">จบการแข่งขัน</span>
         <h2 id="jungle-result-title">{{ winnerName }}</h2><p>{{ game.winner === 'draw' ? 'เกมนี้จบลงด้วยผลเสมอ' : 'เป็นผู้ชนะในเกมนี้' }}</p>
         <small>ห้องจะปิดอัตโนมัติใน {{ roomSecondsLeft }} วินาที</small>
-        <div class="result-modal-actions"><button type="button" class="create-button" @click="leaveRoom">กลับหน้า Lobby</button><button type="button" class="join-button" @click="winnerPopupDismissed = true">ปิด popup</button></div>
+        <div class="result-modal-actions"><button type="button" class="create-button" @click="requestExit">กลับหน้า Lobby</button><button type="button" class="join-button" @click="winnerPopupDismissed = true">ปิด popup</button></div>
       </section>
     </div>
+    <div v-if="showExitConfirm" class="room-closed-modal-backdrop" role="presentation"><section class="room-closed-modal" role="dialog" aria-modal="true" aria-labelledby="jungle-exit-title"><span>⚠️</span><h2 id="jungle-exit-title">ยืนยันออกจากห้อง?</h2><p>{{ isSpectator ? 'คุณจะออกจากการรับชมการแข่งขันนี้' : 'ห้องจะถูกปิด และผู้เล่นกับผู้ชมทุกคนจะกลับไป Lobby' }}</p><small v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</small><div class="result-modal-actions"><button class="join-button" type="button" :disabled="busy" @click="showExitConfirm = false">ยกเลิก</button><button class="create-button" type="button" :disabled="busy" @click="confirmExitRoom">{{ busy ? 'กำลังปิดห้อง…' : isSpectator ? 'ยืนยันออก' : 'ยืนยันปิดห้อง' }}</button></div></section></div>
   </section>
 </template>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { createOxGame, getOpenOxGames, getOxGame, joinOxGame, leaveOxGame, playOxCell, quickJoinOxGame } from '../services/ox.js'
+import { closeOxGame, createOxGame, getOpenOxGames, getOxGame, joinOxGame, leaveOxGame, playOxCell, quickJoinOxGame } from '../services/ox.js'
 import OxEgg from '../components/OxEgg.vue'
 import { getPagePlayerName, setPagePlayerName } from '../services/playerName.js'
 
@@ -21,6 +21,8 @@ const notice = ref('')
 const selectedSize = ref(null)
 const now = ref(Date.now())
 const winnerPopupDismissed = ref(false)
+const showExitConfirm = ref(false)
+const roomClosedMessage = ref('')
 let pollTimer
 let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
@@ -110,7 +112,6 @@ async function placePiece(cell, size = selectedSize.value) {
   try {
     game.value = await playOxCell(game.value.id, playerToken.value, cell, size)
     selectedSize.value = null
-    if (game.value.winner) clearInterval(pollTimer)
   } catch (error) {
     errorMessage.value = error.message
     await refreshGame()
@@ -124,6 +125,7 @@ function dropPiece(event, cell) {
 
 function saveCredentials(payload) {
   winnerPopupDismissed.value = false
+  roomClosedMessage.value = ''
   game.value = withRoomTimestamps(payload.game)
   playerToken.value = payload.token
   selectedSize.value = null
@@ -196,6 +198,10 @@ async function refreshGame() {
     game.value = withRoomTimestamps(snapshot, game.value)
     if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
+    if (error.message.includes('ผู้เล่นออกจากห้อง')) {
+      leaveRoom('ผู้เล่นออกจากห้อง ห้องนี้ถูกปิดแล้ว')
+      return
+    }
     errorMessage.value = error.message
     clearInterval(pollTimer)
   }
@@ -208,15 +214,34 @@ async function copyRoomCode() {
   } catch { notice.value = `รหัสห้อง: ${game.value.id}` }
 }
 
-function leaveRoom() {
+function requestExit() {
+  showExitConfirm.value = true
+}
+
+async function confirmExitRoom() {
+  if (!game.value || !playerToken.value || busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    if (!spectator.value) await closeOxGame(game.value.id, playerToken.value)
+    showExitConfirm.value = false
+    leaveRoom()
+  } catch (error) {
+    errorMessage.value = error.message
+  } finally { busy.value = false }
+}
+
+function leaveRoom(message = '') {
   leaveSpectatorPresence()
   clearInterval(pollTimer)
+  showExitConfirm.value = false
   game.value = null
   playerToken.value = ''
   selectedSize.value = null
   sessionStorage.removeItem('ox-active-game')
   errorMessage.value = ''
   notice.value = ''
+  roomClosedMessage.value = message
   startRoomsRefresh()
 }
 
@@ -234,7 +259,7 @@ if (savedGame) {
     getOxGame(saved.id, saved.token).then(snapshot => {
       game.value = withRoomTimestamps(snapshot)
       winnerPopupDismissed.value = false
-      if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1000)
+      pollTimer = setInterval(refreshGame, 1000)
     }).catch(() => sessionStorage.removeItem('ox-active-game'))
   } catch { sessionStorage.removeItem('ox-active-game') }
 }
@@ -258,6 +283,7 @@ onBeforeUnmount(() => {
 
     <section v-if="!game" class="lobby-card ox-lobby">
       <div class="lobby-heading"><span class="lobby-icon">🥚</span><div><h2>เริ่มเกมไข่จุ๊บจิ๊บ</h2><p>สร้างห้อง public หรือเลือกเข้าห้องที่เปิดรออยู่</p></div></div>
+      <div v-if="roomClosedMessage" class="room-closed-modal-backdrop" role="presentation"><section class="room-closed-modal" role="dialog" aria-modal="true" aria-labelledby="ox-closed-title"><span>📢</span><h2 id="ox-closed-title">ผู้เล่นออกจากห้อง</h2><p>ห้องนี้ถูกปิดแล้ว ทุกคนกลับมาที่ Lobby แล้ว</p><button class="join-button" type="button" @click="roomClosedMessage = ''">ตกลง</button></section></div>
       <label class="field-label" for="ox-player-name">ชื่อผู้เล่น</label>
       <input id="ox-player-name" v-model="playerName" class="lobby-input" maxlength="20" placeholder="ชื่อของคุณ" autocomplete="nickname" />
       <div class="lobby-actions lobby-actions-public">
@@ -294,7 +320,7 @@ onBeforeUnmount(() => {
     <section v-else class="ox-match">
       <div v-if="game.status === 'waiting'" class="room-expiry-banner" role="status">กำลังรอผู้เล่น · ปิดห้องใน {{ roomSecondsLeft }} วินาที</div>
       <div v-if="game.winner" class="room-expiry-banner finished-expiry-banner" role="status">ห้องจะปิดและกลับ lobby ใน {{ roomSecondsLeft }} วินาที</div>
-      <div class="match-topline"><button class="back-button" type="button" @click="leaveRoom">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ไข่จุ๊บจิ๊บ · {{ game.id }}</span></div>
+      <div class="match-topline"><button class="back-button" type="button" @click="requestExit">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ไข่จุ๊บจิ๊บ · {{ game.id }}</span></div>
       <div class="ox-players">
         <div class="ox-player" :class="{ 'ox-player-active': game.status === 'playing' && !game.winner && game.turn === 'x' }"><OxEgg class="ox-player-art" side="x" size="medium"/><div><strong>{{ game.players.x || 'ผู้เล่นไข่ขาว' }}</strong><small>ไข่ขาว</small></div><span v-if="game.turn === 'x' && game.status === 'playing' && !game.winner" class="turn-chip my-turn">กำลังเล่น</span></div>
         <span class="ox-versus">VS</span>
@@ -334,6 +360,7 @@ onBeforeUnmount(() => {
           <div class="result-modal-actions"><button type="button" class="create-button" @click="leaveRoom">กลับหน้า Lobby</button><button type="button" class="join-button" @click="winnerPopupDismissed = true">ปิด popup</button></div>
         </section>
       </div>
+      <div v-if="showExitConfirm" class="room-closed-modal-backdrop" role="presentation"><section class="room-closed-modal" role="dialog" aria-modal="true" aria-labelledby="ox-exit-title"><span>⚠️</span><h2 id="ox-exit-title">ยืนยันออกจากห้อง?</h2><p>{{ spectator ? 'คุณจะออกจากการรับชมการแข่งขันนี้' : 'ห้องจะถูกปิด และผู้เล่นกับผู้ชมทุกคนจะกลับไป Lobby' }}</p><small v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</small><div class="result-modal-actions"><button class="join-button" type="button" :disabled="busy" @click="showExitConfirm = false">ยกเลิก</button><button class="create-button" type="button" :disabled="busy" @click="confirmExitRoom">{{ busy ? 'กำลังปิดห้อง…' : spectator ? 'ยืนยันออก' : 'ยืนยันปิดห้อง' }}</button></div></section></div>
     </section>
   </section>
 </template>

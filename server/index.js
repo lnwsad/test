@@ -24,6 +24,7 @@ const Note = mongoose.model('Note', noteSchema)
 // that run multiple API instances should replace this map with shared storage.
 const games = new Map()
 const oxGames = new Map()
+const closedRooms = new Map()
 const ROOM_WAIT_TIMEOUT_MS = 60_000
 const SPECTATOR_ACTIVE_WINDOW_MS = 15_000
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -33,7 +34,7 @@ function roomCode() {
   let code
   do {
     code = Array.from(randomBytes(5), byte => ROOM_ALPHABET[byte % ROOM_ALPHABET.length]).join('')
-  } while (games.has(code) || oxGames.has(code))
+  } while (games.has(code) || oxGames.has(code) || closedRooms.has(code))
   return code
 }
 
@@ -46,6 +47,9 @@ function pruneExpiredWaitingRooms() {
   for (const [id, game] of oxGames) {
     if (game.players.x && !game.players.o && !game.winner && Date.parse(game.createdAt || 0) <= cutoff) oxGames.delete(id)
     else if (game.winner && Date.now() - Date.parse(game.finishedAt || 0) >= 120_000) oxGames.delete(id)
+  }
+  for (const [id, closedAt] of closedRooms) {
+    if (Date.now() - closedAt >= 120_000) closedRooms.delete(id)
   }
 }
 
@@ -396,6 +400,19 @@ app.post('/api/games/:id/leave', (request, response) => {
   response.json({ ok: true })
 })
 
+app.delete('/api/games/:id', (request, response) => {
+  const id = request.params.id.toUpperCase()
+  const game = games.get(id)
+  if (!game) return response.status(404).json({ error: 'ไม่พบห้องนี้ หรือห้องถูกปิดแล้ว' })
+  const token = request.get('x-player-token')
+  if (![game.players.blue?.token, game.players.red?.token].includes(token)) {
+    return response.status(403).json({ error: 'เฉพาะผู้เล่นในห้องเท่านั้นที่ปิดห้องได้' })
+  }
+  games.delete(id)
+  closedRooms.set(id, Date.now())
+  response.json({ ok: true })
+})
+
 app.get('/api/games/open', (_request, response) => {
   pruneExpiredWaitingRooms()
   const rooms = [...games.values()]
@@ -408,7 +425,7 @@ app.get('/api/games/open', (_request, response) => {
 app.get('/api/games/:id', (request, response) => {
   pruneExpiredWaitingRooms()
   const game = games.get(request.params.id.toUpperCase())
-  if (!game) return response.status(404).json({ error: 'ไม่พบห้องนี้ หรือห้องหมดอายุแล้ว' })
+  if (!game) return response.status(closedRooms.has(request.params.id.toUpperCase()) ? 410 : 404).json({ error: closedRooms.has(request.params.id.toUpperCase()) ? 'ผู้เล่นออกจากห้อง ห้องนี้ถูกปิดแล้ว' : 'ไม่พบห้องนี้ หรือห้องหมดอายุแล้ว' })
   advanceExpiredTurns(game)
   touchSpectator(game, request.get('x-player-token'))
   const snapshot = publicGame(game, request.get('x-player-token'))
@@ -503,6 +520,19 @@ app.post('/api/ox/games/:id/leave', (request, response) => {
   response.json({ ok: true })
 })
 
+app.delete('/api/ox/games/:id', (request, response) => {
+  const id = request.params.id.toUpperCase()
+  const game = oxGames.get(id)
+  if (!game) return response.status(404).json({ error: 'ไม่พบห้อง OX นี้ หรือห้องถูกปิดแล้ว' })
+  const token = request.get('x-player-token')
+  if (![game.players.x?.token, game.players.o?.token].includes(token)) {
+    return response.status(403).json({ error: 'เฉพาะผู้เล่นในห้องเท่านั้นที่ปิดห้องได้' })
+  }
+  oxGames.delete(id)
+  closedRooms.set(id, Date.now())
+  response.json({ ok: true })
+})
+
 app.get('/api/ox/games/open', (_request, response) => {
   pruneExpiredWaitingRooms()
   const rooms = [...oxGames.values()]
@@ -515,7 +545,7 @@ app.get('/api/ox/games/open', (_request, response) => {
 app.get('/api/ox/games/:id', (request, response) => {
   pruneExpiredWaitingRooms()
   const game = oxGames.get(request.params.id.toUpperCase())
-  if (!game) return response.status(404).json({ error: 'ไม่พบห้อง OX นี้ หรือห้องหมดอายุแล้ว' })
+  if (!game) return response.status(closedRooms.has(request.params.id.toUpperCase()) ? 410 : 404).json({ error: closedRooms.has(request.params.id.toUpperCase()) ? 'ผู้เล่นออกจากห้อง ห้องนี้ถูกปิดแล้ว' : 'ไม่พบห้อง OX นี้ หรือห้องหมดอายุแล้ว' })
   advanceExpiredOxTurns(game)
   touchSpectator(game, request.get('x-player-token'))
   const snapshot = publicOxGame(game, request.get('x-player-token'))

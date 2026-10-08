@@ -38,6 +38,10 @@ export function leaveGame(id, token) {
   return gameRequest(`/${encodeURIComponent(id)}/leave`, { method: 'POST', token })
 }
 
+export function closeGame(id, token) {
+  return gameRequest(`/${encodeURIComponent(id)}`, { method: 'DELETE', token })
+}
+
 export function openGameEgg(id, token, eggId) {
   return gameRequest(`/${encodeURIComponent(id)}/open`, { method: 'POST', token, body: { eggId } })
 }

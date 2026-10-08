@@ -291,4 +291,10 @@ h3 { margin: .75rem 0 .35rem; font-size: .95rem; }
 .result-modal > small { color: #aeb4c0; font-variant-numeric: tabular-nums; }
 .result-modal-actions { display: flex; width: 100%; gap: .6rem; margin-top: .5rem; }
 .result-modal-actions button { flex: 1; justify-content: center; }
+.room-closed-modal-backdrop { position: fixed; z-index: 1100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(9,12,20,.78); backdrop-filter: blur(5px); }
+.room-closed-modal { display: grid; width: min(100%, 24rem); justify-items: center; gap: .7rem; padding: 1.5rem; border: 1px solid rgba(239,199,121,.32); border-radius: 1.2rem; background: linear-gradient(145deg, #263440, #1c2231); box-shadow: 0 1.5rem 5rem rgba(0,0,0,.48); color: #f4eee0; text-align: center; }
+.room-closed-modal > span { font-size: 2rem; }
+.room-closed-modal h2 { margin: 0; color: #f5d88e; font-size: 1.2rem; }
+.room-closed-modal p { margin: 0; color: #c4c8ce; font-size: .9rem; line-height: 1.5; }
+.room-closed-modal > button { min-width: 7rem; justify-content: center; }
 @media (max-width: 420px) { .result-modal-actions { flex-direction: column; } }
