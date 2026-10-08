@@ -20,14 +20,24 @@ const errorMessage = ref('')
 const notice = ref('')
 const selectedSize = ref(null)
 const now = ref(Date.now())
+const winnerPopupDismissed = ref(false)
 let pollTimer
 let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
+watch([now, game], () => {
+  if (game.value && ((game.value.winner && roomSecondsLeft.value <= 0) || (game.value.status === 'waiting' && roomSecondsLeft.value <= 0))) leaveRoom()
+})
 
 const spectator = computed(() => game.value?.spectator === true)
 const secondsLeft = computed(() => game.value?.turnStartedAt
   ? Math.max(0, Math.ceil((Date.parse(game.value.turnStartedAt) + (game.value.turnSeconds || OX_TURN_SECONDS) * 1000 - now.value) / 1000))
   : OX_TURN_SECONDS)
+const roomSecondsLeft = computed(() => {
+  if (!game.value) return 0
+  const start = game.value.winner ? game.value.finishedAt : game.value.status === 'waiting' ? game.value.createdAt : null
+  return start ? Math.max(0, Math.ceil((Date.parse(start) + (game.value.winner ? 120_000 : 60_000) - now.value) / 1000)) : 0
+})
+const winnerName = computed(() => game.value?.winner === 'draw' ? 'เสมอกัน!' : game.value?.players?.[game.value?.winner] || 'ผู้ชนะ')
 const isMyTurn = computed(() => game.value?.status === 'playing' && !game.value?.winner && !spectator.value && game.value?.turn === game.value?.side && secondsLeft.value > 0)
 const ownSide = computed(() => spectator.value ? 'o' : game.value?.side || 'x')
 const otherSide = computed(() => spectator.value ? 'x' : ownSide.value === 'x' ? 'o' : 'x')
@@ -106,6 +116,7 @@ function dropPiece(event, cell) {
 }
 
 function saveCredentials(payload) {
+  winnerPopupDismissed.value = false
   game.value = payload.game
   playerToken.value = payload.token
   selectedSize.value = null
@@ -173,8 +184,9 @@ function startRoomsRefresh() {
 async function refreshGame() {
   if (!game.value || !playerToken.value) return
   try {
+    const hadWinner = Boolean(game.value.winner)
     game.value = await getOxGame(game.value.id, playerToken.value)
-    if (game.value.winner) clearInterval(pollTimer)
+    if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
     errorMessage.value = error.message
     clearInterval(pollTimer)
@@ -213,6 +225,7 @@ if (savedGame) {
     playerToken.value = saved.token
     getOxGame(saved.id, saved.token).then(snapshot => {
       game.value = snapshot
+      winnerPopupDismissed.value = false
       if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1000)
     }).catch(() => sessionStorage.removeItem('ox-active-game'))
   } catch { sessionStorage.removeItem('ox-active-game') }
@@ -271,6 +284,8 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else class="ox-match">
+      <div v-if="game.status === 'waiting'" class="room-expiry-banner" role="status">กำลังรอผู้เล่น · ปิดห้องใน {{ roomSecondsLeft }} วินาที</div>
+      <div v-if="game.winner" class="room-expiry-banner finished-expiry-banner" role="status">ห้องจะปิดและกลับ lobby ใน {{ roomSecondsLeft }} วินาที</div>
       <div class="match-topline"><button class="back-button" type="button" @click="leaveRoom">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ไข่จุ๊บจิ๊บ · {{ game.id }}</span></div>
       <div class="ox-players">
         <div class="ox-player" :class="{ 'ox-player-active': game.status === 'playing' && !game.winner && game.turn === 'x' }"><OxEgg class="ox-player-art" side="x" size="medium"/><div><strong>{{ game.players.x || 'ผู้เล่นไข่ขาว' }}</strong><small>ไข่ขาว</small></div><span v-if="game.turn === 'x' && game.status === 'playing' && !game.winner" class="turn-chip my-turn">กำลังเล่น</span></div>
@@ -303,6 +318,14 @@ onBeforeUnmount(() => {
       <p v-if="notice" class="notice-message" role="status">{{ notice }}</p>
       <article class="invite-card ox-invite"><span class="eyebrow">รหัสห้องไข่จุ๊บจิ๊บ</span><button class="room-code-button" type="button" @click="copyRoomCode"><span>{{ game.id }}</span><small>คัดลอก ↗</small></button><small v-if="game.status === 'playing' && !spectator" class="spectator-note">คนที่เข้าหลังผู้เล่นครบจะเข้าชมเกม</small></article>
       <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
+      <div v-if="game?.winner && !winnerPopupDismissed" class="result-modal-backdrop" role="presentation">
+        <section class="result-modal" role="dialog" aria-modal="true" aria-labelledby="ox-result-title">
+          <span class="result-trophy">{{ game.winner === 'draw' ? '🤝' : '🏆' }}</span><span class="eyebrow">จบการแข่งขัน</span>
+          <h2 id="ox-result-title">{{ winnerName }}</h2><p>{{ game.winner === 'draw' ? 'เกมนี้จบลงด้วยผลเสมอ' : 'เป็นผู้ชนะในเกมนี้' }}</p>
+          <small>ห้องจะปิดอัตโนมัติใน {{ roomSecondsLeft }} วินาที</small>
+          <div class="result-modal-actions"><button type="button" class="create-button" @click="leaveRoom">กลับหน้า Lobby</button><button type="button" class="join-button" @click="winnerPopupDismissed = true">ปิด popup</button></div>
+        </section>
+      </div>
     </section>
   </section>
 </template>

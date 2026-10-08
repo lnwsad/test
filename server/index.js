@@ -68,6 +68,8 @@ function publicOxGame(game, token) {
   if (!side && !spectator) return null
   return {
     id: game.id,
+    createdAt: game.createdAt,
+    finishedAt: game.finishedAt ?? null,
     side,
     spectator,
     status: game.players.x && game.players.o ? 'playing' : 'waiting',
@@ -182,6 +184,8 @@ function publicGame(game, token) {
   if (!side && !spectator) return null
   return {
     id: game.id,
+    createdAt: game.createdAt,
+    finishedAt: game.finishedAt ?? null,
     side,
     spectator,
     status: game.players.red && game.players.blue ? 'playing' : 'waiting',

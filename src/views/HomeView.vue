@@ -17,14 +17,24 @@ const errorMessage = ref('')
 const notice = ref('')
 const selectedId = ref(null)
 const now = ref(Date.now())
+const winnerPopupDismissed = ref(false)
 let pollTimer
 let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
+watch([now, game], () => {
+  if (game.value && ((game.value.winner && roomSecondsLeft.value <= 0) || (game.value.status === 'waiting' && roomSecondsLeft.value <= 0))) leaveRoom()
+})
 
 const isSpectator = computed(() => game.value?.spectator === true)
 const viewerSide = computed(() => game.value?.side || 'blue')
 const turnDeadline = computed(() => game.value?.turnStartedAt ? Date.parse(game.value.turnStartedAt) + TURN_SECONDS * 1000 : 0)
 const secondsLeft = computed(() => turnDeadline.value ? Math.max(0, Math.ceil((turnDeadline.value - now.value) / 1000)) : TURN_SECONDS)
+const roomSecondsLeft = computed(() => {
+  if (!game.value) return 0
+  const start = game.value.winner ? game.value.finishedAt : game.value.status === 'waiting' ? game.value.createdAt : null
+  return start ? Math.max(0, Math.ceil((Date.parse(start) + (game.value.winner ? 120_000 : 60_000) - now.value) / 1000)) : 0
+})
+const winnerName = computed(() => game.value?.winner === 'draw' ? 'เสมอกัน!' : game.value?.players?.[game.value?.winner] || 'ผู้ชนะ')
 const isMyTurn = computed(() => !isSpectator.value && game.value?.status === 'playing' && !game.value?.winner && game.value?.turn === viewerSide.value && secondsLeft.value > 0)
 const isOpponentTurn = computed(() => !isSpectator.value && game.value?.status === 'playing' && !game.value?.winner && game.value?.turn !== viewerSide.value)
 const selectedPiece = computed(() => game.value?.pieces.find(piece => piece.id === selectedId.value) || null)
@@ -76,6 +86,7 @@ function hasMove(row, col) {
 }
 
 function saveCredentials(payload) {
+  winnerPopupDismissed.value = false
   game.value = payload.game
   playerToken.value = payload.token
   selectedId.value = null
@@ -143,8 +154,9 @@ function startRoomsRefresh() {
 async function refreshGame() {
   if (!game.value || !playerToken.value) return
   try {
+    const hadWinner = Boolean(game.value.winner)
     game.value = await getGame(game.value.id, playerToken.value)
-    if (game.value.winner) clearInterval(pollTimer)
+    if (game.value.winner && !hadWinner) winnerPopupDismissed.value = false
   } catch (error) {
     errorMessage.value = error.message
     clearInterval(pollTimer)
@@ -168,7 +180,7 @@ async function perform(action) {
       : await sendGameMove(game.value.id, playerToken.value, action)
     game.value = result
     selectedId.value = null
-    if (result.winner) clearInterval(pollTimer)
+    if (result.winner) winnerPopupDismissed.value = false
   } catch (error) {
     errorMessage.value = error.message
     await refreshGame()
@@ -219,6 +231,7 @@ if (savedGame) {
     playerToken.value = saved.token
     getGame(saved.id, saved.token).then(snapshot => {
       game.value = snapshot
+      winnerPopupDismissed.value = false
       if (!snapshot.winner) pollTimer = setInterval(refreshGame, 1100)
     }).catch(() => sessionStorage.removeItem('jungle-active-game'))
   } catch { sessionStorage.removeItem('jungle-active-game') }
@@ -269,6 +282,8 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else class="match-layout simple-match">
+      <div v-if="game.status === 'waiting'" class="room-expiry-banner" role="status">กำลังรอผู้เล่น · ปิดห้องใน {{ roomSecondsLeft }} วินาที</div>
+      <div v-if="game.winner" class="room-expiry-banner finished-expiry-banner" role="status">ห้องจะปิดและกลับ lobby ใน {{ roomSecondsLeft }} วินาที</div>
       <div class="match-topline"><button class="back-button" type="button" @click="leaveRoom">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ห้อง {{ game.id }}</span></div>
       <div class="match-grid">
         <div class="board-wrap">
@@ -301,5 +316,13 @@ onBeforeUnmount(() => {
       <p class="rule-note"><span>🏆</span> กินสัตว์อีกฝ่ายหมด หรือเมื่อเหลือฝ่ายละ 1 ตัวเท่ากัน ให้วัดค่าตัวสุดท้าย · เท่ากันเสมอ · ครบ 60 เทิร์นเสมอ</p>
     </section>
     <footer class="jungle-footer">เปิดไข่ให้ทัน คิดให้ไวใน 15 วินาที</footer>
+    <div v-if="game?.winner && !winnerPopupDismissed" class="result-modal-backdrop" role="presentation">
+      <section class="result-modal" role="dialog" aria-modal="true" aria-labelledby="jungle-result-title">
+        <span class="result-trophy">{{ game.winner === 'draw' ? '🤝' : '🏆' }}</span><span class="eyebrow">จบการแข่งขัน</span>
+        <h2 id="jungle-result-title">{{ winnerName }}</h2><p>{{ game.winner === 'draw' ? 'เกมนี้จบลงด้วยผลเสมอ' : 'เป็นผู้ชนะในเกมนี้' }}</p>
+        <small>ห้องจะปิดอัตโนมัติใน {{ roomSecondsLeft }} วินาที</small>
+        <div class="result-modal-actions"><button type="button" class="create-button" @click="leaveRoom">กลับหน้า Lobby</button><button type="button" class="join-button" @click="winnerPopupDismissed = true">ปิด popup</button></div>
+      </section>
+    </div>
   </section>
 </template>
