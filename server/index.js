@@ -24,6 +24,8 @@ const Note = mongoose.model('Note', noteSchema)
 // that run multiple API instances should replace this map with shared storage.
 const games = new Map()
 const oxGames = new Map()
+const ROOM_WAIT_TIMEOUT_MS = 60_000
+const SPECTATOR_ACTIVE_WINDOW_MS = 15_000
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const OX_TURN_SECONDS = 30
 
@@ -33,6 +35,31 @@ function roomCode() {
     code = Array.from(randomBytes(5), byte => ROOM_ALPHABET[byte % ROOM_ALPHABET.length]).join('')
   } while (games.has(code) || oxGames.has(code))
   return code
+}
+
+function pruneExpiredWaitingRooms() {
+  const cutoff = Date.now() - ROOM_WAIT_TIMEOUT_MS
+  for (const [id, game] of games) {
+    if (game.players.blue && !game.players.red && !game.winner && Date.parse(game.createdAt || 0) <= cutoff) games.delete(id)
+    else if (game.winner && Date.now() - Date.parse(game.finishedAt || game.updatedAt || 0) >= 120_000) games.delete(id)
+  }
+  for (const [id, game] of oxGames) {
+    if (game.players.x && !game.players.o && !game.winner && Date.parse(game.createdAt || 0) <= cutoff) oxGames.delete(id)
+    else if (game.winner && Date.now() - Date.parse(game.finishedAt || 0) >= 120_000) oxGames.delete(id)
+  }
+}
+
+const waitingRoomCleanup = setInterval(pruneExpiredWaitingRooms, 5_000)
+waitingRoomCleanup.unref()
+
+function touchSpectator(game, token) {
+  const spectator = game.spectators?.find(player => player.token === token)
+  if (spectator) spectator.lastSeenAt = Date.now()
+}
+
+function countActiveSpectators(game) {
+  const cutoff = Date.now() - SPECTATOR_ACTIVE_WINDOW_MS
+  return (game.spectators || []).filter(spectator => spectator.lastSeenAt && spectator.lastSeenAt >= cutoff).length
 }
 
 function publicOxGame(game, token) {
@@ -89,6 +116,7 @@ function completeOxTurn(game, completedAt, lastMove) {
   game.lastMove = lastMove
   game.winner = getOxWinner(game.cells)
   if (game.winner) {
+    game.finishedAt = completedAt.toISOString()
     game.turnStartedAt = null
     return
   }
@@ -99,6 +127,7 @@ function completeOxTurn(game, completedAt, lastMove) {
   if (nextCanPlay) game.turn = next
   else if (!currentCanPlay) {
     game.winner = 'draw'
+    game.finishedAt = completedAt.toISOString()
     game.turnStartedAt = null
     return
   } else game.lastMove.skipped = next
@@ -117,6 +146,7 @@ function advanceExpiredOxTurns(game) {
       const next = current === 'x' ? 'o' : 'x'
       if (!hasOxLegalMove(game, next)) {
         game.winner = 'draw'
+        game.finishedAt = completedAt.toISOString()
         game.lastMove = { type: 'timeout-pass', skipped: game.turn }
         game.turnStartedAt = null
         return
@@ -195,9 +225,13 @@ function completeTurn(game, action, completedAt = new Date()) {
   game.lastMove = action
   game.updatedAt = completedAt.toISOString()
   finishIfWon(game)
-  if (game.winner) return
+  if (game.winner) {
+    game.finishedAt = completedAt.toISOString()
+    return
+  }
   if (game.turns >= MAX_TURNS) {
     game.winner = 'draw'
+    game.finishedAt = completedAt.toISOString()
     return
   }
   game.turn = game.turn === 'red' ? 'blue' : 'red'
@@ -288,11 +322,31 @@ function cleanName(value) {
   return typeof value === 'string' ? value.trim().slice(0, 20) || 'ผู้เล่น' : 'ผู้เล่น'
 }
 
+function joinAnimalGame(game, name) {
+  const token = randomUUID()
+  game.players.red = { token, name: cleanName(name) }
+  game.diceRoll = rollOpeningDie()
+  game.eggs = randomOpening(game.eggs, game.diceRoll)
+  game.pieces = game.eggs.filter(egg => egg.status === 'revealed').map(egg => ({ id: egg.id, animal: egg.animal, side: egg.side, row: egg.row, col: egg.col }))
+  game.lastMove = { type: 'dice', count: game.diceRoll }
+  game.turnStartedAt = new Date().toISOString()
+  game.updatedAt = new Date().toISOString()
+  return { token, game: publicGame(game, token) }
+}
+
+function joinOxGame(game, name) {
+  const token = randomUUID()
+  game.players.o = { token, name: cleanName(name) }
+  game.turnStartedAt = new Date().toISOString()
+  return { token, game: publicOxGame(game, token) }
+}
+
 app.post('/api/games', (request, response) => {
   const id = roomCode()
   const token = randomUUID()
   const game = {
     id,
+    createdAt: new Date().toISOString(),
     players: { red: null, blue: { token, name: cleanName(request.body?.name) } },
     spectators: [],
     eggs: createInitialEggs(),
@@ -309,29 +363,50 @@ app.post('/api/games', (request, response) => {
   response.status(201).json({ token, game: publicGame(game, token) })
 })
 
+app.post('/api/games/quick-join', (request, response) => {
+  const game = [...games.values()]
+    .filter(candidate => !candidate.players.red && candidate.players.blue && !candidate.winner)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+  if (!game) return response.status(404).json({ error: 'ยังไม่มีห้อง public ที่รอผู้เล่นอยู่ ลองสร้างห้องใหม่ก่อนได้เลย' })
+  response.json(joinAnimalGame(game, request.body?.name))
+})
+
 app.post('/api/games/:id/join', (request, response) => {
+  pruneExpiredWaitingRooms()
   const game = games.get(request.params.id.toUpperCase())
   if (!game) return response.status(404).json({ error: 'ไม่พบห้องนี้ ลองตรวจรหัสอีกครั้ง' })
+  if (!game.players.red && game.players.blue) {
+    return response.json(joinAnimalGame(game, request.body?.name))
+  }
   const token = randomUUID()
   if (game.players.red && game.players.blue) {
     game.spectators ??= []
-    game.spectators.push({ token, name: cleanName(request.body?.name) })
+    game.spectators.push({ token, name: cleanName(request.body?.name), lastSeenAt: Date.now() })
     return response.json({ token, game: publicGame(game, token) })
   }
-  game.players.red = { token, name: cleanName(request.body?.name) }
-  game.diceRoll = rollOpeningDie()
-  game.eggs = randomOpening(game.eggs, game.diceRoll)
-  game.pieces = game.eggs.filter(egg => egg.status === 'revealed').map(egg => ({ id: egg.id, animal: egg.animal, side: egg.side, row: egg.row, col: egg.col }))
-  game.lastMove = { type: 'dice', count: game.diceRoll }
-  game.turnStartedAt = new Date().toISOString()
-  game.updatedAt = new Date().toISOString()
-  response.json({ token, game: publicGame(game, token) })
+})
+
+app.post('/api/games/:id/leave', (request, response) => {
+  const game = games.get(request.params.id.toUpperCase())
+  if (game) game.spectators = (game.spectators || []).filter(player => player.token !== request.get('x-player-token'))
+  response.json({ ok: true })
+})
+
+app.get('/api/games/open', (_request, response) => {
+  pruneExpiredWaitingRooms()
+  const rooms = [...games.values()]
+    .filter(game => game.players.blue)
+    .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0))
+    .map(game => ({ id: game.id, hostName: game.players.blue.name, createdAt: game.createdAt, status: game.winner ? 'finished' : game.players.red ? 'playing' : 'waiting', spectators: countActiveSpectators(game) }))
+  response.json(rooms)
 })
 
 app.get('/api/games/:id', (request, response) => {
+  pruneExpiredWaitingRooms()
   const game = games.get(request.params.id.toUpperCase())
   if (!game) return response.status(404).json({ error: 'ไม่พบห้องนี้ หรือห้องหมดอายุแล้ว' })
   advanceExpiredTurns(game)
+  touchSpectator(game, request.get('x-player-token'))
   const snapshot = publicGame(game, request.get('x-player-token'))
   if (!snapshot) return response.status(403).json({ error: 'รหัสผู้เล่นไม่ถูกต้อง' })
   response.json(snapshot)
@@ -381,6 +456,7 @@ app.post('/api/ox/games', (request, response) => {
   const token = randomUUID()
   const game = {
     id,
+    createdAt: new Date().toISOString(),
     players: { x: { token, name: cleanName(request.body?.name) }, o: null },
     spectators: [],
     cells: Array.from({ length: 9 }, () => []),
@@ -395,23 +471,49 @@ app.post('/api/ox/games', (request, response) => {
   response.status(201).json({ token, game: publicOxGame(game, token) })
 })
 
+app.post('/api/ox/games/quick-join', (request, response) => {
+  const game = [...oxGames.values()]
+    .filter(candidate => !candidate.players.o && candidate.players.x && !candidate.winner)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+  if (!game) return response.status(404).json({ error: 'ยังไม่มีห้อง public ที่รอผู้เล่นอยู่ ลองสร้างห้องใหม่ก่อนได้เลย' })
+  response.json(joinOxGame(game, request.body?.name))
+})
+
 app.post('/api/ox/games/:id/join', (request, response) => {
+  pruneExpiredWaitingRooms()
   const game = oxGames.get(request.params.id.toUpperCase())
   if (!game) return response.status(404).json({ error: 'ไม่พบห้อง OX นี้ ตรวจรหัสอีกครั้ง' })
+  if (!game.players.o && game.players.x) {
+    return response.json(joinOxGame(game, request.body?.name))
+  }
   const token = randomUUID()
   if (game.players.o) {
-    game.spectators.push({ token, name: cleanName(request.body?.name) })
+    game.spectators.push({ token, name: cleanName(request.body?.name), lastSeenAt: Date.now() })
     return response.json({ token, game: publicOxGame(game, token) })
   }
-  game.players.o = { token, name: cleanName(request.body?.name) }
-  game.turnStartedAt = new Date().toISOString()
-  response.json({ token, game: publicOxGame(game, token) })
+})
+
+app.post('/api/ox/games/:id/leave', (request, response) => {
+  const game = oxGames.get(request.params.id.toUpperCase())
+  if (game) game.spectators = (game.spectators || []).filter(player => player.token !== request.get('x-player-token'))
+  response.json({ ok: true })
+})
+
+app.get('/api/ox/games/open', (_request, response) => {
+  pruneExpiredWaitingRooms()
+  const rooms = [...oxGames.values()]
+    .filter(game => game.players.x)
+    .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0))
+    .map(game => ({ id: game.id, hostName: game.players.x.name, createdAt: game.createdAt, status: game.winner ? 'finished' : game.players.o ? 'playing' : 'waiting', spectators: countActiveSpectators(game) }))
+  response.json(rooms)
 })
 
 app.get('/api/ox/games/:id', (request, response) => {
+  pruneExpiredWaitingRooms()
   const game = oxGames.get(request.params.id.toUpperCase())
   if (!game) return response.status(404).json({ error: 'ไม่พบห้อง OX นี้ หรือห้องหมดอายุแล้ว' })
   advanceExpiredOxTurns(game)
+  touchSpectator(game, request.get('x-player-token'))
   const snapshot = publicOxGame(game, request.get('x-player-token'))
   if (!snapshot) return response.status(403).json({ error: 'รหัสผู้เล่นไม่ถูกต้อง' })
   response.json(snapshot)

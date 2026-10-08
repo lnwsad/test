@@ -18,12 +18,24 @@ export function createOxGame(name) {
   return oxRequest('', { method: 'POST', body: { name } })
 }
 
+export function quickJoinOxGame(name) {
+  return oxRequest('/quick-join', { method: 'POST', body: { name } })
+}
+
+export function getOpenOxGames() {
+  return oxRequest('/open')
+}
+
 export function joinOxGame(id, name) {
   return oxRequest(`/${encodeURIComponent(id)}/join`, { method: 'POST', body: { name } })
 }
 
 export function getOxGame(id, token) {
   return oxRequest(`/${encodeURIComponent(id)}`, { token })
+}
+
+export function leaveOxGame(id, token) {
+  return oxRequest(`/${encodeURIComponent(id)}/leave`, { method: 'POST', token })
 }
 
 export function playOxCell(id, token, cell, size) {

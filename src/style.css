@@ -91,6 +91,37 @@ h3 { margin: .75rem 0 .35rem; font-size: .95rem; }
 .lobby-input:focus { border-color: rgba(239,199,121,.68); box-shadow: 0 0 0 3px rgba(239,199,121,.1); }
 .lobby-input::placeholder { color: #788391; }
 .lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin-top: .8rem; }
+.lobby-actions-public { grid-template-columns: 1fr; gap: .55rem; }
+.quick-join-button { display: flex; align-items: center; justify-content: center; gap: .6rem; width: 100%; min-height: 3.65rem; padding: .55rem .9rem; border: 1px solid rgba(255,255,255,.2); border-radius: .85rem; background: linear-gradient(110deg, #f3d58e, #e9bd67); color: #24352e; text-align: center; cursor: pointer; box-shadow: 0 8px 22px rgba(10,20,16,.16); }
+.quick-join-button strong { font-size: .96rem; font-weight: 850; }
+.quick-join-icon { display: grid; flex: 0 0 2.35rem; width: 2.35rem; height: 2.35rem; place-items: center; border-radius: .72rem; background: rgba(255,255,255,.48); font-size: 1.18rem; }
+.quick-join-button:disabled { opacity: .6; cursor: wait; }
+.quick-join-ox { border-color: rgba(255,255,255,.16); background: linear-gradient(110deg, #d0c7ff, #aa9bf4); color: #29233f; }
+.create-public-button { width: 100%; min-height: 2.55rem; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.07); color: #e6e9e8; }
+.create-public-button > span:first-child { color: #eac377; }
+.ox-create.create-public-button { background: rgba(184,170,255,.09); color: #d9d2ff; }
+.ox-create.create-public-button > span:first-child { color: #b8aaff; }
+.join-by-code { display: grid; gap: .42rem; margin-top: 1rem; padding-top: .85rem; border-top: 1px solid rgba(255,255,255,.075); }
+.join-by-code > span { color: #aeb6c2; font-size: .72rem; font-weight: 650; }
+.join-by-code .join-control { max-width: 23rem; }
+.public-rooms { display: grid; gap: .55rem; margin-top: 1.05rem; }
+.public-rooms-heading { display: flex; align-items: center; gap: .5rem; color: #eceee9; font-size: .78rem; }
+.public-rooms-heading > span { display: grid; min-width: 1.35rem; height: 1.35rem; place-items: center; padding: 0 .3rem; border-radius: 99px; background: rgba(255,255,255,.09); color: #c4cbd1; font-size: .68rem; }
+.public-rooms-empty { margin: 0; padding: .75rem .8rem; border: 1px dashed rgba(255,255,255,.12); border-radius: .72rem; color: #9da7b2; font-size: .74rem; }
+.public-room-list { display: grid; gap: .45rem; max-height: 15rem; overflow: auto; }
+.public-room-item { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: .65rem; width: 100%; min-height: 3.25rem; padding: .48rem .65rem; border: 1px solid rgba(255,255,255,.085); border-radius: .72rem; background: rgba(15,22,32,.42); color: #f5f0e4; text-align: left; cursor: pointer; }
+.public-room-item:hover:not(:disabled) { border-color: rgba(239,199,121,.45); background: rgba(255,255,255,.055); }
+.public-room-item:disabled { opacity: .55; cursor: wait; }
+.public-room-host { display: grid; min-width: 0; gap: .08rem; }
+.public-room-host strong { overflow: hidden; color: #eceee9; font-size: .77rem; text-overflow: ellipsis; white-space: nowrap; }
+.public-room-host small { color: #9da7b2; font-size: .64rem; }
+.public-room-host .room-status-playing { color: #8ee0bb; font-weight: 750; }
+.public-room-host .room-status-finished { color: #c7bcff; font-weight: 750; }
+.public-room-host .room-viewer-count { color: #aab5c1; }
+.public-room-code { padding: .26rem .42rem; border: 1px solid rgba(255,255,255,.1); border-radius: .45rem; color: #e2d9bb; font-size: .69rem; font-weight: 800; letter-spacing: .08em; }
+.public-room-join { color: #ebc875; font-size: .68rem; font-weight: 750; white-space: nowrap; }
+.public-room-item:has(.room-status-playing) .public-room-join { color: #91dfba; }
+.public-room-item:has(.room-status-finished) .public-room-join { color: #c7bcff; }
 .create-button, .join-button, .room-code-button, .back-button { font: inherit; cursor: pointer; }
 .create-button { display: flex; align-items: center; justify-content: space-between; gap: .4rem; min-height: 2.8rem; padding: .6rem .8rem; border: 0; border-radius: .72rem; background: #eac377; color: #29352f; font-size: .78rem; font-weight: 800; }
 .create-button > span:first-child { font-size: 1.15rem; }

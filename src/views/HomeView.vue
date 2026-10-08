@@ -1,11 +1,15 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ANIMALS, ANIMAL_ORDER, BOARD_HEIGHT, BOARD_WIDTH, MAX_TURNS, TURN_SECONDS, getLegalMoves } from '../game/rules.js'
-import { createGame, getGame, joinGame, openGameEgg, sendGameMove } from '../services/api.js'
+import { createGame, getGame, getOpenGames, joinGame, leaveGame, openGameEgg, quickJoinGame, sendGameMove } from '../services/api.js'
 import AnimalArt from '../components/AnimalArt.vue'
+import { getPagePlayerName, setPagePlayerName } from '../services/playerName.js'
 
-const playerName = ref(localStorage.getItem('jungle-player-name') || '')
+const playerName = ref(getPagePlayerName())
+watch(playerName, setPagePlayerName)
 const roomCodeInput = ref('')
+const openRooms = ref([])
+const roomsLoading = ref(true)
 const game = ref(null)
 const playerToken = ref('')
 const busy = ref(false)
@@ -14,6 +18,7 @@ const notice = ref('')
 const selectedId = ref(null)
 const now = ref(Date.now())
 let pollTimer
+let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
 
 const isSpectator = computed(() => game.value?.spectator === true)
@@ -74,9 +79,10 @@ function saveCredentials(payload) {
   game.value = payload.game
   playerToken.value = payload.token
   selectedId.value = null
-  localStorage.setItem('jungle-player-name', playerName.value.trim() || 'ผู้เล่น')
   sessionStorage.setItem('jungle-active-game', JSON.stringify({ id: payload.game.id, token: payload.token }))
   clearInterval(pollTimer)
+  clearInterval(roomsTimer)
+  roomsTimer = null
   pollTimer = setInterval(refreshGame, 1100)
   errorMessage.value = ''
   notice.value = ''
@@ -87,6 +93,15 @@ async function createRoom() {
   busy.value = true
   errorMessage.value = ''
   try { saveCredentials(await createGame(playerName.value)) }
+  catch (error) { errorMessage.value = error.message }
+  finally { busy.value = false }
+}
+
+async function quickJoinRoom() {
+  if (busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try { saveCredentials(await quickJoinGame(playerName.value)) }
   catch (error) { errorMessage.value = error.message }
   finally { busy.value = false }
 }
@@ -102,6 +117,27 @@ async function joinRoom() {
     roomCodeInput.value = ''
   } catch (error) { errorMessage.value = error.message }
   finally { busy.value = false }
+}
+
+async function joinListedRoom(id) {
+  if (busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try { saveCredentials(await joinGame(id, playerName.value)) }
+  catch (error) { errorMessage.value = error.message; await refreshOpenRooms() }
+  finally { busy.value = false }
+}
+
+async function refreshOpenRooms() {
+  try { openRooms.value = await getOpenGames() }
+  catch { openRooms.value = [] }
+  finally { roomsLoading.value = false }
+}
+
+function startRoomsRefresh() {
+  clearInterval(roomsTimer)
+  refreshOpenRooms()
+  roomsTimer = setInterval(refreshOpenRooms, 4000)
 }
 
 async function refreshGame() {
@@ -159,6 +195,7 @@ async function clickCell(row, col) {
 }
 
 function leaveRoom() {
+  leaveSpectatorPresence()
   clearInterval(pollTimer)
   game.value = null
   playerToken.value = ''
@@ -166,6 +203,13 @@ function leaveRoom() {
   sessionStorage.removeItem('jungle-active-game')
   errorMessage.value = ''
   notice.value = ''
+  startRoomsRefresh()
+}
+
+function leaveSpectatorPresence() {
+  if (isSpectator.value && game.value && playerToken.value) {
+    void leaveGame(game.value.id, playerToken.value).catch(() => {})
+  }
 }
 
 const savedGame = sessionStorage.getItem('jungle-active-game')
@@ -180,8 +224,12 @@ if (savedGame) {
   } catch { sessionStorage.removeItem('jungle-active-game') }
 }
 
+onMounted(startRoomsRefresh)
+
 onBeforeUnmount(() => {
+  leaveSpectatorPresence()
   clearInterval(pollTimer)
+  clearInterval(roomsTimer)
   clearInterval(clockTimer)
 })
 </script>
@@ -199,13 +247,24 @@ onBeforeUnmount(() => {
     </header>
 
     <section v-if="!game" class="lobby-card">
-      <div class="lobby-heading"><span class="lobby-icon">⚔</span><div><h2>เริ่มเกมกับเพื่อน</h2><p>สร้างห้องใหม่แล้วแชร์รหัส 5 ตัวให้คู่แข่ง</p></div></div>
+      <div class="lobby-heading"><span class="lobby-icon">⚔</span><div><h2>เริ่มเกมกับเพื่อน</h2><p>สร้างห้อง public หรือเลือกเข้าห้องที่เปิดรออยู่</p></div></div>
       <label class="field-label" for="player-name">ชื่อผู้เล่น</label>
       <input id="player-name" v-model="playerName" class="lobby-input" maxlength="20" placeholder="เช่น เจ้าป่ามือใหม่" autocomplete="nickname" />
-      <div class="lobby-actions">
-        <button class="create-button" type="button" :disabled="busy" @click="createRoom"><span>＋</span> สร้างห้องแข่ง <span class="button-arrow">↗</span></button>
-        <div class="join-control"><input v-model="roomCodeInput" class="lobby-input code-input" maxlength="5" placeholder="รหัส 5 ตัว" aria-label="รหัสห้อง" @keyup.enter="joinRoom" /><button class="join-button" type="button" :disabled="busy" @click="joinRoom">เข้าห้อง <span>→</span></button></div>
+      <div class="lobby-actions lobby-actions-public">
+        <button class="quick-join-button" type="button" aria-label="Quick Join" :disabled="busy" @click="quickJoinRoom"><span class="quick-join-icon" aria-hidden="true">⚡</span><strong>Quick Join</strong></button>
+        <button class="create-button create-public-button" type="button" :disabled="busy" @click="createRoom"><span>＋</span> สร้างห้อง public <span class="button-arrow">↗</span></button>
       </div>
+      <section class="public-rooms" aria-label="ห้อง public ที่เปิดอยู่">
+        <div class="public-rooms-heading"><strong>ห้อง public ที่เปิดอยู่</strong><span>{{ openRooms.length }}</span></div>
+        <p v-if="roomsLoading" class="public-rooms-empty">กำลังโหลดรายการห้อง…</p>
+        <p v-else-if="!openRooms.length" class="public-rooms-empty">ยังไม่มีห้องเปิดรออยู่</p>
+        <div v-else class="public-room-list">
+          <button v-for="room in openRooms" :key="room.id" class="public-room-item" type="button" :disabled="busy" :aria-label="`${room.status === 'waiting' ? 'เข้าร่วม' : room.status === 'finished' ? 'ดูผล' : 'รับชม'}ห้อง ${room.id} ของ ${room.hostName}`" @click="joinListedRoom(room.id)">
+            <span class="public-room-host"><strong>{{ room.hostName }}</strong><small :class="`room-status-${room.status}`">{{ room.status === 'playing' ? 'กำลังแข่ง' : room.status === 'finished' ? 'จบการแข่งขัน' : 'กำลังรอผู้เล่น' }}</small><small v-if="room.status !== 'waiting'" class="room-viewer-count">ผู้ชม {{ room.spectators }} คน</small></span><span class="public-room-code">{{ room.id }}</span><span class="public-room-join">{{ room.status === 'waiting' ? 'เข้าร่วม →' : room.status === 'finished' ? 'ดูผล →' : 'รับชม →' }}</span>
+          </button>
+        </div>
+      </section>
+      <div class="join-by-code"><span>มีรหัสห้องแล้ว?</span><div class="join-control"><input v-model="roomCodeInput" class="lobby-input code-input" maxlength="5" placeholder="รหัส 5 ตัว" aria-label="รหัสห้อง" @keyup.enter="joinRoom" /><button class="join-button" type="button" :disabled="busy" @click="joinRoom">เข้าห้อง <span>→</span></button></div></div>
       <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
     </section>
 

@@ -18,12 +18,24 @@ export function createGame(name) {
   return gameRequest('', { method: 'POST', body: { name } })
 }
 
+export function quickJoinGame(name) {
+  return gameRequest('/quick-join', { method: 'POST', body: { name } })
+}
+
+export function getOpenGames() {
+  return gameRequest('/open')
+}
+
 export function joinGame(id, name) {
   return gameRequest(`/${encodeURIComponent(id)}/join`, { method: 'POST', body: { name } })
 }
 
 export function getGame(id, token) {
   return gameRequest(`/${encodeURIComponent(id)}`, { token })
+}
+
+export function leaveGame(id, token) {
+  return gameRequest(`/${encodeURIComponent(id)}/leave`, { method: 'POST', token })
 }
 
 export function openGameEgg(id, token, eggId) {

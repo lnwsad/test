@@ -1,14 +1,18 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { createOxGame, getOxGame, joinOxGame, playOxCell } from '../services/ox.js'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { createOxGame, getOpenOxGames, getOxGame, joinOxGame, leaveOxGame, playOxCell, quickJoinOxGame } from '../services/ox.js'
 import OxEgg from '../components/OxEgg.vue'
+import { getPagePlayerName, setPagePlayerName } from '../services/playerName.js'
 
 const SIZE_ORDER = ['small', 'medium', 'large']
 const SIZE_LABEL = { small: 'เล็ก', medium: 'กลาง', large: 'ใหญ่' }
 const SIZE_RANK = { small: 1, medium: 2, large: 3 }
 const OX_TURN_SECONDS = 30
-const playerName = ref(localStorage.getItem('jungle-player-name') || '')
+const playerName = ref(getPagePlayerName())
+watch(playerName, setPagePlayerName)
 const roomCodeInput = ref('')
+const openRooms = ref([])
+const roomsLoading = ref(true)
 const game = ref(null)
 const playerToken = ref('')
 const busy = ref(false)
@@ -17,6 +21,7 @@ const notice = ref('')
 const selectedSize = ref(null)
 const now = ref(Date.now())
 let pollTimer
+let roomsTimer
 const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
 
 const spectator = computed(() => game.value?.spectator === true)
@@ -104,9 +109,10 @@ function saveCredentials(payload) {
   game.value = payload.game
   playerToken.value = payload.token
   selectedSize.value = null
-  localStorage.setItem('jungle-player-name', playerName.value.trim() || 'ผู้เล่น')
   sessionStorage.setItem('ox-active-game', JSON.stringify({ id: payload.game.id, token: payload.token }))
   clearInterval(pollTimer)
+  clearInterval(roomsTimer)
+  roomsTimer = null
   pollTimer = setInterval(refreshGame, 1000)
   errorMessage.value = ''
   notice.value = ''
@@ -117,6 +123,15 @@ async function createRoom() {
   busy.value = true
   errorMessage.value = ''
   try { saveCredentials(await createOxGame(playerName.value)) }
+  catch (error) { errorMessage.value = error.message }
+  finally { busy.value = false }
+}
+
+async function quickJoinRoom() {
+  if (busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try { saveCredentials(await quickJoinOxGame(playerName.value)) }
   catch (error) { errorMessage.value = error.message }
   finally { busy.value = false }
 }
@@ -132,6 +147,27 @@ async function joinRoom() {
     roomCodeInput.value = ''
   } catch (error) { errorMessage.value = error.message }
   finally { busy.value = false }
+}
+
+async function joinListedRoom(id) {
+  if (busy.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try { saveCredentials(await joinOxGame(id, playerName.value)) }
+  catch (error) { errorMessage.value = error.message; await refreshOpenRooms() }
+  finally { busy.value = false }
+}
+
+async function refreshOpenRooms() {
+  try { openRooms.value = await getOpenOxGames() }
+  catch { openRooms.value = [] }
+  finally { roomsLoading.value = false }
+}
+
+function startRoomsRefresh() {
+  clearInterval(roomsTimer)
+  refreshOpenRooms()
+  roomsTimer = setInterval(refreshOpenRooms, 4000)
 }
 
 async function refreshGame() {
@@ -153,6 +189,7 @@ async function copyRoomCode() {
 }
 
 function leaveRoom() {
+  leaveSpectatorPresence()
   clearInterval(pollTimer)
   game.value = null
   playerToken.value = ''
@@ -160,6 +197,13 @@ function leaveRoom() {
   sessionStorage.removeItem('ox-active-game')
   errorMessage.value = ''
   notice.value = ''
+  startRoomsRefresh()
+}
+
+function leaveSpectatorPresence() {
+  if (spectator.value && game.value && playerToken.value) {
+    void leaveOxGame(game.value.id, playerToken.value).catch(() => {})
+  }
 }
 
 const savedGame = sessionStorage.getItem('ox-active-game')
@@ -174,8 +218,12 @@ if (savedGame) {
   } catch { sessionStorage.removeItem('ox-active-game') }
 }
 
+onMounted(startRoomsRefresh)
+
 onBeforeUnmount(() => {
+  leaveSpectatorPresence()
   clearInterval(pollTimer)
+  clearInterval(roomsTimer)
   clearInterval(clockTimer)
 })
 </script>
@@ -188,13 +236,24 @@ onBeforeUnmount(() => {
     </header>
 
     <section v-if="!game" class="lobby-card ox-lobby">
-      <div class="lobby-heading"><span class="lobby-icon">🥚</span><div><h2>เริ่มเกมไข่จุ๊บจิ๊บ</h2><p>ไข่ขาวกับไข่ดำ ผลัดกันวาง สร้างห้องแล้วส่งรหัสให้เพื่อน</p></div></div>
+      <div class="lobby-heading"><span class="lobby-icon">🥚</span><div><h2>เริ่มเกมไข่จุ๊บจิ๊บ</h2><p>สร้างห้อง public หรือเลือกเข้าห้องที่เปิดรออยู่</p></div></div>
       <label class="field-label" for="ox-player-name">ชื่อผู้เล่น</label>
       <input id="ox-player-name" v-model="playerName" class="lobby-input" maxlength="20" placeholder="ชื่อของคุณ" autocomplete="nickname" />
-      <div class="lobby-actions">
-        <button class="create-button ox-create" type="button" :disabled="busy" @click="createRoom"><span>＋</span> สร้างห้องไข่จุ๊บจิ๊บ <span class="button-arrow">↗</span></button>
-        <div class="join-control"><input v-model="roomCodeInput" class="lobby-input code-input" maxlength="5" placeholder="รหัส 5 ตัว" aria-label="รหัสห้องไข่จุ๊บจิ๊บ" @keyup.enter="joinRoom" /><button class="join-button" type="button" :disabled="busy" @click="joinRoom">เข้าห้อง <span>→</span></button></div>
+      <div class="lobby-actions lobby-actions-public">
+        <button class="quick-join-button quick-join-ox" type="button" aria-label="Quick Join" :disabled="busy" @click="quickJoinRoom"><span class="quick-join-icon" aria-hidden="true">⚡</span><strong>Quick Join</strong></button>
+        <button class="create-button create-public-button ox-create" type="button" :disabled="busy" @click="createRoom"><span>＋</span> สร้างห้อง public <span class="button-arrow">↗</span></button>
       </div>
+      <section class="public-rooms" aria-label="ห้อง public ที่เปิดอยู่">
+        <div class="public-rooms-heading"><strong>ห้อง public ที่เปิดอยู่</strong><span>{{ openRooms.length }}</span></div>
+        <p v-if="roomsLoading" class="public-rooms-empty">กำลังโหลดรายการห้อง…</p>
+        <p v-else-if="!openRooms.length" class="public-rooms-empty">ยังไม่มีห้องเปิดรออยู่</p>
+        <div v-else class="public-room-list">
+          <button v-for="room in openRooms" :key="room.id" class="public-room-item" type="button" :disabled="busy" :aria-label="`${room.status === 'waiting' ? 'เข้าร่วม' : room.status === 'finished' ? 'ดูผล' : 'รับชม'}ห้อง ${room.id} ของ ${room.hostName}`" @click="joinListedRoom(room.id)">
+            <span class="public-room-host"><strong>{{ room.hostName }}</strong><small :class="`room-status-${room.status}`">{{ room.status === 'playing' ? 'กำลังแข่ง' : room.status === 'finished' ? 'จบการแข่งขัน' : 'กำลังรอผู้เล่น' }}</small><small v-if="room.status !== 'waiting'" class="room-viewer-count">ผู้ชม {{ room.spectators }} คน</small></span><span class="public-room-code">{{ room.id }}</span><span class="public-room-join">{{ room.status === 'waiting' ? 'เข้าร่วม →' : room.status === 'finished' ? 'ดูผล →' : 'รับชม →' }}</span>
+          </button>
+        </div>
+      </section>
+      <div class="join-by-code"><span>มีรหัสห้องแล้ว?</span><div class="join-control"><input v-model="roomCodeInput" class="lobby-input code-input" maxlength="5" placeholder="รหัส 5 ตัว" aria-label="รหัสห้องไข่จุ๊บจิ๊บ" @keyup.enter="joinRoom" /><button class="join-button" type="button" :disabled="busy" @click="joinRoom">เข้าห้อง <span>→</span></button></div></div>
       <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
     </section>
 
@@ -207,7 +266,7 @@ onBeforeUnmount(() => {
         <li><span>การกิน</span><strong>ไข่ใหญ่กินไข่ฝ่ายตรงข้ามที่เล็กกว่าได้ วางทับไข่ฝ่ายเดียวกันไม่ได้</strong></li>
         <li><span>เวลาต่อเทิร์น</span><strong>30 วินาที ถ้าหมดเวลาระบบจะสุ่มเลือกไข่และสุ่มวางในช่องที่ลงได้</strong></li>
         <li><span>ชนะเกม</span><strong>เรียงไข่ชั้นบนของฝ่ายตัวเองครบ 3 ช่อง แนวนอน แนวตั้ง หรือแนวทแยง</strong></li>
-        <li><span>ห้องแข่ง</span><strong>สร้างห้องแล้วส่งรหัสให้ผู้เล่นอีกคน ผู้ที่เข้าหลังห้องเต็มรับชมได้</strong></li>
+        <li><span>ห้องแข่ง</span><strong>ห้องที่สร้างเป็น public และเข้าได้ด้วย Quick Join หรือรหัส ผู้ที่เข้าหลังห้องเต็มรับชมได้</strong></li>
       </ul>
     </section>
 
