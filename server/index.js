@@ -26,6 +26,7 @@ const games = new Map()
 const oxGames = new Map()
 const closedRooms = new Map()
 const ROOM_WAIT_TIMEOUT_MS = 60_000
+const START_COUNTDOWN_MS = 3_000
 const SPECTATOR_ACTIVE_WINDOW_MS = 15_000
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const OX_TURN_SECONDS = 30
@@ -337,7 +338,7 @@ function joinAnimalGame(game, name) {
   game.eggs = randomOpening(game.eggs, game.diceRoll)
   game.pieces = game.eggs.filter(egg => egg.status === 'revealed').map(egg => ({ id: egg.id, animal: egg.animal, side: egg.side, row: egg.row, col: egg.col }))
   game.lastMove = { type: 'dice', count: game.diceRoll }
-  game.turnStartedAt = new Date().toISOString()
+  game.turnStartedAt = new Date(Date.now() + START_COUNTDOWN_MS).toISOString()
   game.updatedAt = new Date().toISOString()
   return { token, game: publicGame(game, token) }
 }
@@ -345,7 +346,7 @@ function joinAnimalGame(game, name) {
 function joinOxGame(game, name) {
   const token = randomUUID()
   game.players.o = { token, name: cleanName(name) }
-  game.turnStartedAt = new Date().toISOString()
+  game.turnStartedAt = new Date(Date.now() + START_COUNTDOWN_MS).toISOString()
   return { token, game: publicOxGame(game, token) }
 }
 
@@ -441,6 +442,7 @@ app.post('/api/games/:id/open', (request, response) => {
   if (!snapshot) return response.status(403).json({ error: 'รหัสผู้เล่นไม่ถูกต้อง' })
   if (snapshot.status !== 'playing') return response.status(409).json({ error: 'รอผู้เล่นอีกฝ่ายเข้าห้องก่อนนะ' })
   if (game.winner) return response.status(409).json({ error: 'เกมจบแล้ว' })
+  if (Date.now() < Date.parse(game.turnStartedAt)) return response.status(409).json({ error: 'เกมกำลังเตรียมเริ่ม รอสักครู่นะ' })
   if (snapshot.side !== game.turn) return response.status(409).json({ error: 'ยังไม่ถึงตาของคุณ' })
   const egg = game.eggs.find(item => item.id === request.body?.eggId)
   if (!egg || egg.status !== 'hidden') {
@@ -461,6 +463,7 @@ app.post('/api/games/:id/moves', (request, response) => {
   if (!snapshot) return response.status(403).json({ error: 'รหัสผู้เล่นไม่ถูกต้อง' })
   if (snapshot.status !== 'playing') return response.status(409).json({ error: 'รอผู้เล่นอีกฝ่ายเข้าห้องก่อนนะ' })
   if (game.winner) return response.status(409).json({ error: 'เกมจบแล้ว' })
+  if (Date.now() < Date.parse(game.turnStartedAt)) return response.status(409).json({ error: 'เกมกำลังเตรียมเริ่ม รอสักครู่นะ' })
   if (snapshot.side !== game.turn) return response.status(409).json({ error: 'ยังไม่ถึงตาของคุณ' })
   const { pieceId, row, col } = request.body ?? {}
   const result = applyMove(game.pieces, game.eggs, pieceId, row, col)
@@ -561,6 +564,7 @@ app.post('/api/ox/games/:id/move', (request, response) => {
   if (!snapshot) return response.status(403).json({ error: 'รหัสผู้เล่นไม่ถูกต้อง' })
   if (snapshot.status !== 'playing') return response.status(409).json({ error: 'รอผู้เล่นอีกฝ่ายเข้าห้องก่อนนะ' })
   if (game.winner) return response.status(409).json({ error: 'เกมจบแล้ว' })
+  if (Date.now() < Date.parse(game.turnStartedAt)) return response.status(409).json({ error: 'เกมกำลังเตรียมเริ่ม รอสักครู่นะ' })
   if (snapshot.side !== game.turn) return response.status(409).json({ error: 'ยังไม่ถึงเทิร์นของคุณ' })
   const { cell, size } = request.body ?? {}
   if (!Number.isInteger(cell) || cell < 0 || cell > 8 || !Object.hasOwn(OX_SIZE_RANK, size)) {

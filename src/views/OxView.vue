@@ -31,8 +31,11 @@ watch([now, game], () => {
 })
 
 const spectator = computed(() => game.value?.spectator === true)
+const preparationSeconds = computed(() => game.value?.status === 'playing' && game.value.turnStartedAt
+  ? Math.max(0, Math.ceil((Date.parse(game.value.turnStartedAt) - now.value) / 1000))
+  : 0)
 const secondsLeft = computed(() => game.value?.turnStartedAt
-  ? Math.max(0, Math.ceil((Date.parse(game.value.turnStartedAt) + (game.value.turnSeconds || OX_TURN_SECONDS) * 1000 - now.value) / 1000))
+  ? Math.min(game.value.turnSeconds || OX_TURN_SECONDS, Math.max(0, Math.ceil((Date.parse(game.value.turnStartedAt) + (game.value.turnSeconds || OX_TURN_SECONDS) * 1000 - now.value) / 1000)))
   : OX_TURN_SECONDS)
 const roomSecondsLeft = computed(() => {
   if (!game.value) return 0
@@ -47,11 +50,29 @@ function withRoomTimestamps(snapshot, previous = null) {
     finishedAt: snapshot.finishedAt || (snapshot.winner ? previous?.finishedAt || new Date().toISOString() : null),
   }
 }
-const isMyTurn = computed(() => game.value?.status === 'playing' && !game.value?.winner && !spectator.value && game.value?.turn === game.value?.side && secondsLeft.value > 0)
+const isMyTurn = computed(() => game.value?.status === 'playing' && !game.value?.winner && preparationSeconds.value === 0 && !spectator.value && game.value?.turn === game.value?.side && secondsLeft.value > 0)
 const ownSide = computed(() => spectator.value ? 'o' : game.value?.side || 'x')
 const otherSide = computed(() => spectator.value ? 'x' : ownSide.value === 'x' ? 'o' : 'x')
 const activePlayer = computed(() => game.value?.players[game.value?.turn] || 'ผู้เล่น')
 const sideName = side => side === 'x' ? 'ไข่ขาว' : 'ไข่ดำ'
+const turnAnnouncement = ref(null)
+let announcementTimer
+function announceTurn() {
+  if (!game.value || game.value.status !== 'playing' || game.value.winner) return
+  clearTimeout(announcementTimer)
+  turnAnnouncement.value = {
+    player: game.value.players[game.value.turn] || 'ผู้เล่น',
+    side: game.value.turn,
+    sideLabel: sideName(game.value.turn),
+  }
+  announcementTimer = setTimeout(() => { turnAnnouncement.value = null }, 1000)
+}
+watch(() => preparationSeconds.value, (value, previous) => {
+  if (previous > 0 && value === 0) announceTurn()
+})
+watch(() => game.value?.turnStartedAt, (value, previous) => {
+  if (value && previous && preparationSeconds.value === 0) announceTurn()
+})
 const ownRemaining = computed(() => SIZE_ORDER.reduce((sum, size) => sum + (game.value?.inventories[ownSide.value]?.[size] || 0), 0))
 const statusText = computed(() => {
   if (!game.value) return ''
@@ -271,6 +292,7 @@ onBeforeUnmount(() => {
   clearInterval(pollTimer)
   clearInterval(roomsTimer)
   clearInterval(clockTimer)
+  clearTimeout(announcementTimer)
 })
 </script>
 
@@ -318,6 +340,9 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else class="ox-match">
+      <div v-if="preparationSeconds > 0" class="game-preparation" role="status" aria-live="assertive"><span>เตรียมพร้อม</span><strong>{{ preparationSeconds }}</strong><small>เกมจะเริ่มในอีก {{ preparationSeconds }} วินาที</small></div>
+      <div v-if="turnAnnouncement" class="turn-announcement" :class="`turn-announcement-${turnAnnouncement.side}`" aria-live="polite"><span>ตาผู้เล่น</span><strong>{{ turnAnnouncement.player }}</strong><small>({{ turnAnnouncement.sideLabel }})</small></div>
+
       <div v-if="game.status === 'waiting'" class="room-expiry-banner" role="status">กำลังรอผู้เล่น · ปิดห้องใน {{ roomSecondsLeft }} วินาที</div>
       <div v-if="game.winner" class="room-expiry-banner finished-expiry-banner" role="status">ห้องจะปิดและกลับ lobby ใน {{ roomSecondsLeft }} วินาที</div>
       <div class="match-topline"><button class="back-button" type="button" @click="requestExit">← ออกจากห้อง</button><span class="room-badge"><span class="live-dot"></span> ไข่จุ๊บจิ๊บ · {{ game.id }}</span></div>
