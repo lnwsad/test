@@ -1,6 +1,9 @@
+import { syncServerClock } from './serverClock.js'
+
 const apiBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
 async function oxRequest(path, { method = 'GET', token, body } = {}) {
+  const requestStartedAt = performance.now()
   const response = await fetch(`${apiBase}/ox/games${path}`, {
     method,
     headers: {
@@ -10,8 +13,11 @@ async function oxRequest(path, { method = 'GET', token, body } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
   const data = await response.json().catch(() => null)
+  const responseReceivedAt = performance.now()
   if (!response.ok) throw new Error(data?.error || `API OX ตอบกลับผิดพลาด (${response.status})`)
   if (!data) throw new Error('API OX ส่งข้อมูลกลับมาไม่ถูกต้อง ลองรีเฟรชแล้วทำรายการอีกครั้ง')
+  const snapshot = data.game || data
+  syncServerClock(snapshot.serverNow, requestStartedAt, responseReceivedAt)
   return data
 }
 

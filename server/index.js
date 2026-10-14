@@ -72,6 +72,7 @@ function publicOxGame(game, token) {
   const spectator = !side && Boolean(game.spectators.some(player => player.token === token))
   if (!side && !spectator) return null
   return {
+    serverNow: Date.now(),
     id: game.id,
     createdAt: game.createdAt,
     finishedAt: game.finishedAt ?? null,
@@ -188,6 +189,7 @@ function publicGame(game, token) {
   const spectator = !side && Boolean(game.spectators?.some(player => player.token === token))
   if (!side && !spectator) return null
   return {
+    serverNow: Date.now(),
     id: game.id,
     createdAt: game.createdAt,
     finishedAt: game.finishedAt ?? null,

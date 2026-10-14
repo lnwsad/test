@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { closeOxGame, createOxGame, getOpenOxGames, getOxGame, joinOxGame, leaveOxGame, playOxCell, quickJoinOxGame } from '../services/ox.js'
+import { getServerNow } from '../services/serverClock.js'
 import OxEgg from '../components/OxEgg.vue'
 import { getPagePlayerName, setPagePlayerName } from '../services/playerName.js'
 
@@ -19,13 +20,13 @@ const busy = ref(false)
 const errorMessage = ref('')
 const notice = ref('')
 const selectedSize = ref(null)
-const now = ref(Date.now())
+const now = ref(getServerNow())
 const winnerPopupDismissed = ref(false)
 const showExitConfirm = ref(false)
 const roomClosedMessage = ref('')
 let pollTimer
 let roomsTimer
-const clockTimer = setInterval(() => { now.value = Date.now() }, 250)
+const clockTimer = setInterval(() => { now.value = getServerNow() }, 250)
 watch([now, game], () => {
   if (game.value && ((game.value.winner && roomSecondsLeft.value <= 0) || (game.value.status === 'waiting' && roomSecondsLeft.value <= 0))) leaveRoom()
 })
